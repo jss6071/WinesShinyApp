@@ -87,7 +87,7 @@ ui <- navbarPage(
       mainPanel(
         textOutput("eval_range_label"),
         h3("Model Specifications"),
-        verbatimTextOutput("model_specs"),
+        tableOutput("model_specs"),
         h3("Training Accuracy"),
         tableOutput("training_metrics"),
         h3("Validation Accuracy"),
@@ -202,10 +202,21 @@ server <- function(input, output, session) {
       )
   })
 
-  output$model_specs <- renderPrint({
-    req(training_models())
-    training_models() |> select(Varietal, .model) |> report()
-  })
+  output$model_specs <- renderTable({
+    data.frame(
+      Model = c("TSLM", "ETS", "ARIMA"),
+      Specification = c(
+        "Sales ~ trend() + season()",
+        "ETS(Sales)",
+        "ARIMA(Sales)"
+      ),
+      Description = c(
+        "Linear trend with seasonal effects",
+        "Exponential smoothing model",
+        "Autoregressive integrated moving average model"
+      )
+    )
+  }, striped = TRUE, bordered = TRUE, hover = TRUE, spacing = "s")
 
 
   output$training_metrics <- renderTable({
@@ -216,14 +227,20 @@ server <- function(input, output, session) {
   }, digits = 2)
 
 
+  validation_forecasts <- reactive({
+    req(training_models(), validation_data())
+    validate(need(nrow(validation_data()) > 0,
+                 "No validation data. Adjust the date range or training cutoff."))
+    forecast(training_models(), h = nrow(validation_data()))
+  })
+
+
   validation_metrics <- reactive({
-    models <- training_models()
-    actual <- validation_data()
-    validate(need(nrow(actual) > 0, "No validation observations. Set the training cutoff earlier."))
-    h <- actual |> distinct(Month) |> nrow()
-    models |> forecast(h = h) |> accuracy(actual) |>
-      select(Varietal, .model, RMSE, MAE, MAPE) |>
-      arrange(Varietal, RMSE)
+    results <- validation_forecasts() |>
+      accuracy(validation_data())
+
+    results |>
+      arrange(RMSE)
   })
 
 
